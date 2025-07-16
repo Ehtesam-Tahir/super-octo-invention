@@ -382,828 +382,593 @@
     <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.3.2/papaparse.min.js"></script>
     <script>
         document.addEventListener('DOMContentLoaded', function() {
-            const csvFileInput = document.getElementById('csv-file');
-            const fileNameDisplay = document.getElementById('file-name');
-            const selectedFileDisplay = document.getElementById('selected-file');
-            const galleryContainer = document.getElementById('gallery');
-            const loadingIndicator = document.getElementById('loading');
-            const errorContainer = document.getElementById('error-container');
-            const doneButton = document.getElementById('done-btn');
-            const headerCounter = document.getElementById('header-counter');
-            const stickyCounter = document.getElementById('sticky-counter');
-            const fileContentsElement = document.getElementById('file-contents');
-            const showFileBtn = document.getElementById('show-file-btn');
-            const processManualBtn = document.getElementById('process-manual-btn');
-            const debugInfoElement = document.getElementById('debug-info');
-            const productTitleElement = document.getElementById('product-title');
-            const progressText = document.getElementById('progress-text');
-            const filteringInfo = document.getElementById('filtering-info');
-            const performanceInfo = document.getElementById('performance-info');
-            
-            // Performance tracking
-            let performanceStats = {
-                startTime: 0,
-                imagesLoaded: 0,
-                imagesFailed: 0,
-                totalImages: 0
-            };
-            
-            // Image loading optimization
-            const imageCache = new Map();
-            const loadingQueue = [];
-            let currentLoadingBatch = 0;
-            const MAX_CONCURRENT_LOADS = 6; // Limit concurrent image loads
-            
-            // Intersection Observer for lazy loading
-            const lazyImageObserver = new IntersectionObserver((entries) => {
-                entries.forEach(entry => {
-                    if (entry.isIntersecting) {
-                        const img = entry.target;
-                        loadImageLazily(img);
-                        lazyImageObserver.unobserve(img);
-                    }
-                });
-            }, {
-                rootMargin: '50px' // Start loading 50px before the image enters viewport
-            });
-            
-            // Data structures for the application
-            let allProductData = [];
-            let uniqueProducts = [];
-            let currentProductIndex = -1;
-            let selectedImages = new Set();
-            let fileContents = '';
-            let globalSeenImages = new Set();
-            
-            // Handle file selection
-            csvFileInput.addEventListener('change', function(e) {
-                const file = e.target.files[0];
-                if (!file) return;
-                
-                fileNameDisplay.textContent = file.name;
-                selectedFileDisplay.textContent = `Selected: ${file.name}`;
-                
-                // Reset state
-                resetApplicationState();
-                
-                // Read file contents for preview
-                const reader = new FileReader();
-                reader.onload = function(e) {
-                    const content = e.target.result;
-                    fileContents = content;
-                    fileContentsElement.textContent = content.substring(0, 1000) + (content.length > 1000 ? '...' : '');
-                    
-                    // Automatically try to process the file
-                    processFile(file);
-                };
-                reader.readAsText(file);
-            });
-            
-            function resetApplicationState() {
-                galleryContainer.innerHTML = '';
-                selectedImages.clear();
-                globalSeenImages.clear();
-                imageCache.clear();
-                loadingQueue.length = 0;
-                currentLoadingBatch = 0;
-                allProductData = [];
-                uniqueProducts = [];
-                currentProductIndex = -1;
-                updateCounter();
-                errorContainer.innerHTML = '';
-                fileContentsElement.style.display = 'none';
-                debugInfoElement.style.display = 'none';
-                productTitleElement.style.display = 'none';
-                filteringInfo.style.display = 'none';
-                performanceInfo.style.display = 'none';
-                
-                // Reset performance stats
-                performanceStats = {
-                    startTime: 0,
-                    imagesLoaded: 0,
-                    imagesFailed: 0,
-                    totalImages: 0
-                };
+    // DOM elements
+    const csvFileInput = document.getElementById('csv-file');
+    const fileNameDisplay = document.getElementById('file-name');
+    const selectedFileDisplay = document.getElementById('selected-file');
+    const galleryContainer = document.getElementById('gallery');
+    const loadingIndicator = document.getElementById('loading');
+    const errorContainer = document.getElementById('error-container');
+    const doneButton = document.getElementById('done-btn');
+    const headerCounter = document.getElementById('header-counter');
+    const stickyCounter = document.getElementById('sticky-counter');
+    const fileContentsElement = document.getElementById('file-contents');
+    const showFileBtn = document.getElementById('show-file-btn');
+    const processManualBtn = document.getElementById('process-manual-btn');
+    const debugInfoElement = document.getElementById('debug-info');
+    const productTitleElement = document.getElementById('product-title');
+    const progressText = document.getElementById('progress-text');
+    const filteringInfo = document.getElementById('filtering-info');
+    const performanceInfo = document.getElementById('performance-info');
+    
+    // Application state
+    let allProductData = [];
+    let uniqueProducts = [];
+    let currentProductIndex = -1;
+    let selectedImages = new Set();
+    let fileContents = '';
+    let globalSeenImages = new Set();
+    let performanceStats = {
+        startTime: 0,
+        imagesLoaded: 0,
+        imagesFailed: 0,
+        totalImages: 0
+    };
+    
+    // Image cache for performance
+    const imageCache = new Map();
+    
+    // Intersection Observer for lazy loading
+    const lazyImageObserver = new IntersectionObserver((entries) => {
+        entries.forEach(entry => {
+            if (entry.isIntersecting) {
+                const img = entry.target;
+                loadImage(img);
+                lazyImageObserver.unobserve(img);
             }
-            
-            // Show file contents preview
-            showFileBtn.addEventListener('click', function() {
-                if (fileContents) {
-                    fileContentsElement.style.display = fileContentsElement.style.display === 'none' ? 'block' : 'none';
-                } else {
-                    showError("No file loaded. Please select a file first.");
-                }
+        });
+    }, {
+        rootMargin: '100px',
+        threshold: 0.1
+    });
+    
+    // File input handler
+    csvFileInput.addEventListener('change', function(e) {
+        const file = e.target.files[0];
+        if (!file) return;
+        
+        fileNameDisplay.textContent = file.name;
+        selectedFileDisplay.textContent = `Selected: ${file.name}`;
+        
+        resetApplicationState();
+        
+        const reader = new FileReader();
+        reader.onload = function(e) {
+            const content = e.target.result;
+            fileContents = content;
+            fileContentsElement.textContent = content.substring(0, 1000) + (content.length > 1000 ? '...' : '');
+            processFile(file);
+        };
+        reader.readAsText(file);
+    });
+    
+    // Show file contents
+    showFileBtn.addEventListener('click', function() {
+        if (fileContents) {
+            const isVisible = fileContentsElement.style.display !== 'none';
+            fileContentsElement.style.display = isVisible ? 'none' : 'block';
+        } else {
+            showError("No file loaded. Please select a file first.");
+        }
+    });
+    
+    // Process file manually
+    processManualBtn.addEventListener('click', function() {
+        if (!fileContents) {
+            showError("No file loaded. Please select a file first.");
+            return;
+        }
+        processFileManually(fileContents);
+    });
+    
+    // Done button handler
+    doneButton.addEventListener('click', function() {
+        if (selectedImages.size === 0) {
+            showError("Please select at least one image before continuing.");
+            return;
+        }
+        
+        const currentProduct = uniqueProducts[currentProductIndex];
+        const selectedUrls = Array.from(selectedImages);
+        
+        console.log(`Selected ${selectedUrls.length} images for ${currentProduct.name}:`, selectedUrls);
+        
+        currentProductIndex++;
+        
+        if (currentProductIndex >= uniqueProducts.length) {
+            productTitleElement.textContent = "✅ All products processed!";
+            galleryContainer.innerHTML = `
+                <div style="text-align: center; padding: 40px; font-size: 18px; color: #4CAF50;">
+                    <h2>🎉 Selection Complete!</h2>
+                    <p>All products have been processed. Check the console for selected images.</p>
+                </div>
+            `;
+            doneButton.style.display = 'none';
+            return;
+        }
+        
+        displayCurrentProduct();
+        updateProgressText();
+        window.scrollTo({ top: 0, behavior: 'smooth' });
+    });
+    
+    // Keyboard shortcuts
+    document.addEventListener('keydown', function(e) {
+        if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
+            doneButton.click();
+        }
+        
+        if (e.key === 'Escape') {
+            selectedImages.clear();
+            updateCounter();
+            document.querySelectorAll('.product-card.selected').forEach(card => {
+                card.classList.remove('selected');
             });
-            
-            // Process file manually
-            processManualBtn.addEventListener('click', function() {
-                if (!fileContents) {
-                    showError("No file loaded. Please select a file first.");
-                    return;
-                }
-                
-                const file = csvFileInput.files[0];
-                if (!file) return;
-                
-                processFileManually(fileContents);
-            });
-            
-            function processFile(file) {
-                loadingIndicator.style.display = 'block';
-                
-                Papa.parse(file, {
-                    header: true,
-                    skipEmptyLines: true,
-                    dynamicTyping: false,
-                    complete: function(results) {
-                        if (results.errors.length > 0 || !validateData(results.data)) {
-                            Papa.parse(file, {
-                                header: true,
-                                delimiter: '\t',
-                                skipEmptyLines: true,
-                                dynamicTyping: false,
-                                complete: function(results) {
-                                    if (results.errors.length > 0 || !validateData(results.data)) {
-                                        processFileManually(fileContents);
-                                    } else {
-                                        loadingIndicator.style.display = 'none';
-                                        processCSVData(results.data);
-                                    }
-                                }
-                            });
-                        } else {
-                            loadingIndicator.style.display = 'none';
-                            processCSVData(results.data);
-                        }
-                    }
-                });
-            }
-            
-            function validateData(data) {
-                if (!data || data.length === 0) return false;
-                
-                const firstRow = data[0];
-                let hasProductName = false;
-                let hasImageUrl = false;
-                
-                for (let key in firstRow) {
-                    if (key && (key.toLowerCase().includes('product') || key.toLowerCase().includes('name'))) {
-                        hasProductName = true;
-                    }
-                    if (key && (key.toLowerCase().includes('image') || key.toLowerCase().includes('url'))) {
-                        hasImageUrl = true;
-                    }
-                }
-                
-                return hasProductName && hasImageUrl;
-            }
-            
-            function processFileManually(content) {
-                debugInfoElement.style.display = 'block';
-                debugInfoElement.textContent = "Attempting manual processing...";
-                
-                const lines = content.split(/\r?\n/).filter(line => line.trim());
-                if (lines.length < 2) {
-                    showError("Not enough data in the file.");
-                    loadingIndicator.style.display = 'none';
-                    return;
-                }
-                
-                const firstLine = lines[0];
-                let delimiter = ',';
-                
-                if (firstLine.includes('\t')) {
-                    delimiter = '\t';
-                    debugInfoElement.textContent += "\nFound tab delimiter";
-                } else if (firstLine.includes(',')) {
-                    delimiter = ',';
-                    debugInfoElement.textContent += "\nFound comma delimiter";
-                }
-                
-                const headers = firstLine.split(delimiter).map(h => h.trim().replace(/"/g, ''));
-                debugInfoElement.textContent += "\nHeaders: " + headers.join(', ');
-                
-                const data = [];
-                for (let i = 1; i < lines.length; i++) {
-                    if (!lines[i].trim()) continue;
-                    
-                    const fields = lines[i].split(delimiter).map(f => f.trim().replace(/"/g, ''));
-                    
-                    if (fields.length < headers.length) continue;
-                    
-                    const row = {};
-                    headers.forEach((header, index) => {
-                        row[header] = fields[index] || '';
-                    });
-                    
-                    data.push(row);
-                }
-                
-                debugInfoElement.textContent += "\nExtracted " + data.length + " rows";
-                
-                if (data.length === 0) {
-                    showError("No valid data found in the file.");
-                    loadingIndicator.style.display = 'none';
-                    return;
-                }
-                
-                processCSVData(data);
+        }
+    });
+    
+    // Reset application state
+    function resetApplicationState() {
+        galleryContainer.innerHTML = '';
+        selectedImages.clear();
+        globalSeenImages.clear();
+        imageCache.clear();
+        allProductData = [];
+        uniqueProducts = [];
+        currentProductIndex = -1;
+        updateCounter();
+        errorContainer.innerHTML = '';
+        fileContentsElement.style.display = 'none';
+        debugInfoElement.style.display = 'none';
+        productTitleElement.style.display = 'none';
+        filteringInfo.style.display = 'none';
+        performanceInfo.style.display = 'none';
+        
+        performanceStats = {
+            startTime: 0,
+            imagesLoaded: 0,
+            imagesFailed: 0,
+            totalImages: 0
+        };
+    }
+    
+    // Process CSV file
+    function processFile(file) {
+        loadingIndicator.style.display = 'block';
+        
+        Papa.parse(file, {
+            header: true,
+            skipEmptyLines: true,
+            dynamicTyping: false,
+            complete: function(results) {
                 loadingIndicator.style.display = 'none';
-            }
-            
-            function processCSVData(data) {
-                if (!data || data.length === 0) {
-                    showError("No data found in the file.");
-                    return;
+                
+                if (results.errors.length > 0) {
+                    console.warn('CSV parsing errors:', results.errors);
                 }
                 
-                performanceStats.startTime = Date.now();
-                
-                allProductData = data;
-                const firstRow = data[0];
-                
-                let columnNames = Object.keys(firstRow).join(', ');
-                debugInfoElement.textContent = "Columns found: " + columnNames;
-                debugInfoElement.style.display = 'block';
-                
-                let productNameKey = null;
-                const keys = Object.keys(firstRow);
-                
-                if (keys.length > 0) {
-                    productNameKey = keys[0];
-                }
-                
-                for (let key in firstRow) {
-                    if (key && (key.toLowerCase().includes('product') && key.toLowerCase().includes('name'))) {
-                        productNameKey = key;
-                        break;
-                    }
-                }
-                
-                const imageUrlKeys = [];
-                for (let key in firstRow) {
-                    if (key && key.toLowerCase().includes('image') && key.toLowerCase().includes('url')) {
-                        imageUrlKeys.push(key);
-                    }
-                }
-                
-                debugInfoElement.textContent += "\nProduct name column: " + productNameKey;
-                debugInfoElement.textContent += "\nImage URL columns: " + imageUrlKeys.join(', ');
-                
-                if (!productNameKey || imageUrlKeys.length === 0) {
-                    showError("Could not identify product name or image URL columns.");
-                    return;
-                }
-                
-                const productGroups = new Map();
-                let totalImages = 0;
-                let duplicateImages = 0;
-                
-                data.forEach(row => {
-                    const productName = row[productNameKey];
-                    
-                    if (!productName || !productName.trim()) return;
-                    
-                    const cleanProductName = productName.trim();
-                    
-                    if (!productGroups.has(cleanProductName)) {
-                        productGroups.set(cleanProductName, {
-                            name: cleanProductName,
-                            images: []
-                        });
-                    }
-                    
-                    imageUrlKeys.forEach(key => {
-                        const url = row[key];
-                        if (url && url.trim() && isValidImageUrl(url.trim())) {
-                            totalImages++;
-                            const cleanUrl = url.trim();
-                            
-                            if (!globalSeenImages.has(cleanUrl)) {
-                                globalSeenImages.add(cleanUrl);
-                                productGroups.get(cleanProductName).images.push({
-                                    url: cleanUrl,
-                                    column: key
-                                });
+                if (validateData(results.data)) {
+                    processCSVData(results.data);
+                } else {
+                    // Try with tab delimiter
+                    Papa.parse(file, {
+                        header: true,
+                        delimiter: '\t',
+                        skipEmptyLines: true,
+                        dynamicTyping: false,
+                        complete: function(tabResults) {
+                            if (validateData(tabResults.data)) {
+                                processCSVData(tabResults.data);
                             } else {
-                                duplicateImages++;
+                                processFileManually(fileContents);
                             }
                         }
                     });
-                });
-                
-                uniqueProducts = Array.from(productGroups.values()).filter(product => product.images.length > 0);
-                
-                performanceStats.totalImages = totalImages - duplicateImages;
-                
-                filteringInfo.innerHTML = `
-                    <strong>Image Processing Summary:</strong><br>
-                    • Total images found: ${totalImages}<br>
-                    • Duplicate images removed: ${duplicateImages}<br>
-                    • Unique images to process: ${totalImages - duplicateImages}<br>
-                    • Fast loading optimizations enabled
-                `;
-                filteringInfo.style.display = 'block';
-                
-                debugInfoElement.textContent += "\nUnique products found: " + uniqueProducts.length;
-                debugInfoElement.textContent += "\nProducts: " + uniqueProducts.map(p => `${p.name} (${p.images.length} images)`).join(', ');
-                
-                if (uniqueProducts.length === 0) {
-                    showError("No valid products with images found in the file.");
-                    return;
                 }
-                
-                currentProductIndex = 0;
-                displayCurrentProduct();
-                updateProgressText();
+            },
+            error: function(error) {
+                loadingIndicator.style.display = 'none';
+                showError("Error parsing CSV: " + error.message);
             }
-            
-            function isValidImageUrl(url) {
-                return typeof url === 'string' && 
-                      (url.startsWith('http://') || url.startsWith('https://'));
-            }
-            
-            function displayCurrentProduct() {
-                selectedImages.clear();
-                updateCounter();
-                galleryContainer.innerHTML = '';
-                
-                if (currentProductIndex < 0 || currentProductIndex >= uniqueProducts.length) {
-                    showError("No more products to process.");
-                    return;
-                }
-                
-                const currentProduct = uniqueProducts[currentProductIndex];
-                
-                productTitleElement.textContent = `Product: ${currentProduct.name}`;
-                productTitleElement.style.display = 'block';
-                
-                // Show performance info
-                updatePerformanceInfo();
-                
-                // Create all product cards immediately with lazy loading
-                createProductCardsWithLazyLoading(currentProduct);
-            }
-            
-            function createProductCardsWithLazyLoading(product) {
-                const fragment = document.createDocumentFragment();
-                
-                product.images.forEach((image, index) => {
-                    const card = createFastProductCard(
-                        product.name, 
-                        image.url, 
-                        image.column, 
-                        index + 1
-                    );
-                    fragment.appendChild(card);
-                });
-                
-                galleryContainer.appendChild(fragment);
-                
-                // Initialize lazy loading for all images
-                const lazyImages = galleryContainer.querySelectorAll('.product-image[data-src]');
-                lazyImages.forEach(img => {
-                    lazyImageObserver.observe(img);
-                });
-            }
-            
-            function createFastProductCard(productName, imageUrl, columnId, imageIndex) {
-                const card = document.createElement('div');
-                card.className = 'product-card loading';
-                card.dataset.url = imageUrl;
-                card.dataset.column = columnId;
-                
-                // Create skeleton loader
-                const skeleton = document.createElement('div');
-                skeleton.className = 'skeleton-loader';
-                
-                const img = document.createElement('img');
-                img.className = 'product-image lazy-loading';
-                img.alt = productName;
-                img.dataset.src = imageUrl; // Use data-src for lazy loading
-                
-                // Create info div
-                const infoDiv = document.createElement('div');
-                infoDiv.className = 'product-info';
-                infoDiv.innerHTML = `
-                    <h3 class="product-name">Image ${imageIndex} (${columnId})</h3>
-                    <div style="font-size: 12px; color: #666;" class="image-status">Loading...</div>
-                `;
-                
-                // Assemble card
-                card.appendChild(skeleton);
-                card.appendChild(img);
-                card.appendChild(infoDiv);
-                
-                // Handle image selection
-                card.addEventListener('click', function() {
-                    const url = this.dataset.url;
-                    
-                    if (selectedImages.has(url)) {
-                        selectedImages.delete(url);
-                        this.classList.remove('selected');
-                    } else {
-                        selectedImages.add(url);
-                        this.classList.add('selected');
-                    }
-                    
-                    updateCounter();
-                });
-                
-                return card;
-            }
-            
-            function loadImageLazily(img) {
-                const imageUrl = img.dataset.src;
-                const card = img.closest('.product-card');
-                const skeleton = card.querySelector('.skeleton-loader');
-                const statusDiv = card.querySelector('.image-status');
-                
-                // Check cache first
-                if (imageCache.has(imageUrl)) {
-                    const cachedData = imageCache.get(imageUrl);
-                    applyImageResult(img, card, skeleton, statusDiv, cachedData);
-                    return;
-                }
-                
-                // Create new image for validation
-                const validationImg = new Image();
-                validationImg.crossOrigin = 'anonymous';
-                
-                // Set loading timeout
-                const loadingTimeout = setTimeout(() => {
-                    performanceStats.imagesFailed++;
-                    const result = {
-                        success: false,
-                        dimensions: 'Timeout',
-                        error: 'Loading timeout'
-                    };
-                    imageCache.set(imageUrl, result);
-                    applyImageResult(img, card, skeleton, statusDiv, result);
-                }, 10000); // 10 second timeout
-                
-                validationImg.onload = function() {
-                    clearTimeout(loadingTimeout);
-                    performanceStats.imagesLoaded++;
-                    
-                    const result = {
-                        success: this.naturalWidth >= 200 && this.naturalHeight >= 200,
-                        dimensions: `${this.naturalWidth}x${this.naturalHeight}`,
-                        width: this.naturalWidth,
-                        height: this.naturalHeight
-                    };
-                    
-                    imageCache.set(imageUrl, result);
-                    applyImageResult(img, card, skeleton, statusDiv, result);
-                    updatePerformanceInfo();
-                };
-                
-                validationImg.onerror = function() {
-                    clearTimeout(loadingTimeout);
-                    performanceStats.imagesFailed++;
-                    
-                    const result = {
-                        success: false,
-                        dimensions: 'Failed to load',
-                        error: 'Load error'
-                    };
-                    
-                    imageCache.set(imageUrl, result);
-                    applyImageResult(img, card, skeleton, statusDiv, result);
-                    updatePerformanceInfo();
-                };
-                
-                validationImg.src = imageUrl;
-            }
-            
-            function applyImageResult(img, card, skeleton, statusDiv, result) {
-                card.classList.remove('loading');
-                
-                if (result.success) {
-                    img.src = img.dataset.src;
-                    img.classList.remove('lazy-loading');
-                    skeleton.style.display = 'none';
-                    statusDiv.textContent = `Size: ${result.dimensions}`;
-                    statusDiv.style.color = '#4CAF50';
-                } else {
-                    // Hide or show filtered image
-                if (result.success) {
-                    img.src = img.dataset.src;
-                    img.classList.remove('lazy-loading');
-                    skeleton.style.display = 'none';
-                    statusDiv.textContent = `Size: ${result.dimensions}`;
-                    statusDiv.style.color = '#4CAF50';
-                } else {
-                    // Show placeholder for failed images
-                    img.style.display = 'none';
-                    skeleton.innerHTML = `
-                        <div style="text-align: center; color: #999;">
-                            <div>❌</div>
-                            <div style="font-size: 12px;">${result.error || 'Failed to load'}</div>
-                        </div>
-                    `;
-                    statusDiv.textContent = `Error: ${result.dimensions}`;
-                    statusDiv.style.color = '#f44336';
-                }
-            }
-            
-            function updatePerformanceInfo() {
-                const elapsed = Date.now() - performanceStats.startTime;
-                const loadedPercent = Math.round((performanceStats.imagesLoaded / performanceStats.totalImages) * 100);
-                
-                performanceInfo.innerHTML = `
-                    <strong>Loading Performance:</strong><br>
-                    • Images loaded: ${performanceStats.imagesLoaded}/${performanceStats.totalImages} (${loadedPercent}%)<br>
-                    • Failed: ${performanceStats.imagesFailed}<br>
-                    • Time elapsed: ${Math.round(elapsed / 1000)}s<br>
-                    • Loading speed: ${Math.round(performanceStats.imagesLoaded / (elapsed / 1000))} images/sec
-                `;
-                performanceInfo.style.display = 'block';
-            }
-            
-            function updateCounter() {
-                const count = selectedImages.size;
-                const text = `${count} selected`;
-                headerCounter.textContent = text;
-                stickyCounter.textContent = text;
-                
-                // Add pulse animation
-                stickyCounter.classList.add('pulse');
-                setTimeout(() => stickyCounter.classList.remove('pulse'), 300);
-            }
-            
-            function updateProgressText() {
-                const total = uniqueProducts.length;
-                const current = currentProductIndex + 1;
-                progressText.textContent = `Product ${current} of ${total}`;
-            }
-            
-            function showError(message) {
-                errorContainer.innerHTML = `<div class="error">${message}</div>`;
-            }
-            
-            // Handle done button
-            doneButton.addEventListener('click', function() {
-                if (selectedImages.size === 0) {
-                    showError("Please select at least one image before continuing.");
-                    return;
-                }
-                
-                // Save selected images for current product
-                const currentProduct = uniqueProducts[currentProductIndex];
-                const selectedUrls = Array.from(selectedImages);
-                
-                console.log(`Selected ${selectedUrls.length} images for ${currentProduct.name}:`, selectedUrls);
-                
-                // Move to next product
-                currentProductIndex++;
-                
-                if (currentProductIndex >= uniqueProducts.length) {
-                    // All products processed
-                    productTitleElement.textContent = "✅ All products processed!";
-                    galleryContainer.innerHTML = `
-                        <div style="text-align: center; padding: 40px; font-size: 18px; color: #4CAF50;">
-                            <h2>🎉 Selection Complete!</h2>
-                            <p>All products have been processed. Check the console for selected images.</p>
-                        </div>
-                    `;
-                    doneButton.style.display = 'none';
-                    return;
-                }
-                
-                // Display next product
-                displayCurrentProduct();
-                updateProgressText();
-                
-                // Scroll to top
-                window.scrollTo({ top: 0, behavior: 'smooth' });
-            });
-            
-            // Keyboard shortcuts
-            document.addEventListener('keydown', function(e) {
-                if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
-                    doneButton.click();
-                }
-                
-                if (e.key === 'Escape') {
-                    selectedImages.clear();
-                    updateCounter();
-                    document.querySelectorAll('.product-card.selected').forEach(card => {
-                        card.classList.remove('selected');
-                    });
-                }
-            });
-            
-            // Enhanced lazy loading with intersection observer
-            const enhancedLazyImageObserver = new IntersectionObserver((entries) => {
-                entries.forEach(entry => {
-                    if (entry.isIntersecting) {
-                        const img = entry.target;
-                        loadImageOptimized(img);
-                        enhancedLazyImageObserver.unobserve(img);
-                    }
-                });
-            }, {
-                rootMargin: '200px', // Load images 200px before they're visible
-                threshold: 0.1
-            });
-            
-            function loadImageOptimized(img) {
-                const imageUrl = img.dataset.src;
-                const card = img.closest('.product-card');
-                const skeleton = card.querySelector('.skeleton-loader');
-                const statusDiv = card.querySelector('.image-status');
-                
-                // Check cache first
-                if (imageCache.has(imageUrl)) {
-                    const cachedData = imageCache.get(imageUrl);
-                    applyImageResultOptimized(img, card, skeleton, statusDiv, cachedData);
-                    return;
-                }
-                
-                // Show image immediately, validate in background
-                img.src = imageUrl;
-                img.classList.remove('lazy-loading');
-                skeleton.style.opacity = '0.3';
-                statusDiv.textContent = 'Loading...';
-                statusDiv.style.color = '#666';
-                
-                // Quick load timeout
-                const quickTimeout = setTimeout(() => {
-                    skeleton.style.display = 'none';
-                    statusDiv.textContent = 'Loaded';
-                    statusDiv.style.color = '#4CAF50';
-                    performanceStats.imagesLoaded++;
-                    updatePerformanceInfo();
-                }, 2000);
-                
-                // Background validation
-                const validationImg = new Image();
-                validationImg.crossOrigin = 'anonymous';
-                
-                validationImg.onload = function() {
-                    clearTimeout(quickTimeout);
-                    performanceStats.imagesLoaded++;
-                    
-                    const result = {
-                        success: this.naturalWidth >= 100 && this.naturalHeight >= 100,
-                        dimensions: `${this.naturalWidth}x${this.naturalHeight}`,
-                        width: this.naturalWidth,
-                        height: this.naturalHeight
-                    };
-                    
-                    imageCache.set(imageUrl, result);
-                    applyImageResultOptimized(img, card, skeleton, statusDiv, result);
-                    updatePerformanceInfo();
-                };
-                
-                validationImg.onerror = function() {
-                    clearTimeout(quickTimeout);
-                    performanceStats.imagesFailed++;
-                    
-                    const result = {
-                        success: false,
-                        dimensions: 'Failed to load',
-                        error: 'Load error'
-                    };
-                    
-                    imageCache.set(imageUrl, result);
-                    applyImageResultOptimized(img, card, skeleton, statusDiv, result);
-                    updatePerformanceInfo();
-                };
-                
-                validationImg.src = imageUrl;
-            }
-            
-            function applyImageResultOptimized(img, card, skeleton, statusDiv, result) {
-                card.classList.remove('loading');
-                skeleton.style.display = 'none';
-                
-                if (result.success) {
-                    statusDiv.textContent = `${result.dimensions}`;
-                    statusDiv.style.color = '#4CAF50';
-                } else {
-                    statusDiv.textContent = `Error: ${result.dimensions}`;
-                    statusDiv.style.color = '#f44336';
-                    // Keep image visible even if validation failed
-                }
-            }
-            
-            // Preload next batch of images
-            function preloadNextImages() {
-                const nextProduct = uniqueProducts[currentProductIndex + 1];
-                if (!nextProduct) return;
-                
-                nextProduct.images.slice(0, 3).forEach(image => {
-                    if (!imageCache.has(image.url)) {
-                        const preloadImg = new Image();
-                        preloadImg.src = image.url;
-                    }
-                });
-            }
-            
-            // Enhanced display function with faster loading
-            function displayCurrentProduct() {
-                selectedImages.clear();
-                updateCounter();
-                galleryContainer.innerHTML = '';
-                
-                if (currentProductIndex < 0 || currentProductIndex >= uniqueProducts.length) {
-                    showError("No more products to process.");
-                    return;
-                }
-                
-                const currentProduct = uniqueProducts[currentProductIndex];
-                
-                productTitleElement.textContent = `Product: ${currentProduct.name}`;
-                productTitleElement.style.display = 'block';
-                
-                updatePerformanceInfo();
-                
-                // Create cards with enhanced lazy loading
-                createProductCardsOptimized(currentProduct);
-                
-                // Preload next product images
-                setTimeout(() => preloadNextImages(), 1000);
-            }
-            
-            function createProductCardsOptimized(product) {
-                const fragment = document.createDocumentFragment();
-                
-                product.images.forEach((image, index) => {
-                    const card = createOptimizedProductCard(
-                        product.name, 
-                        image.url, 
-                        image.column, 
-                        index + 1
-                    );
-                    fragment.appendChild(card);
-                });
-                
-                galleryContainer.appendChild(fragment);
-                
-                // Enhanced lazy loading for all images
-                const lazyImages = galleryContainer.querySelectorAll('.product-image[data-src]');
-                lazyImages.forEach(img => {
-                    enhancedLazyImageObserver.observe(img);
-                });
-                
-                // Load first few images immediately
-                lazyImages.forEach((img, index) => {
-                    if (index < 4) { // Load first 4 images immediately
-                        setTimeout(() => loadImageOptimized(img), index * 100);
-                    }
-                });
-            }
-            
-            function createOptimizedProductCard(productName, imageUrl, columnId, imageIndex) {
-                const card = document.createElement('div');
-                card.className = 'product-card';
-                card.dataset.url = imageUrl;
-                card.dataset.column = columnId;
-                
-                const skeleton = document.createElement('div');
-                skeleton.className = 'skeleton-loader';
-                
-                const img = document.createElement('img');
-                img.className = 'product-image lazy-loading';
-                img.alt = productName;
-                img.dataset.src = imageUrl;
-                img.loading = 'lazy'; // Native lazy loading
-                img.decoding = 'async'; // Async decoding
-                
-                const infoDiv = document.createElement('div');
-                infoDiv.className = 'product-info';
-                infoDiv.innerHTML = `
-                    <h3 class="product-name">Image ${imageIndex}</h3>
-                    <div style="font-size: 12px; color: #666;" class="image-status">Ready</div>
-                `;
-                
-                card.appendChild(skeleton);
-                card.appendChild(img);
-                card.appendChild(infoDiv);
-                
-                // Optimized click handler
-                card.addEventListener('click', function() {
-                    const url = this.dataset.url;
-                    
-                    if (selectedImages.has(url)) {
-                        selectedImages.delete(url);
-                        this.classList.remove('selected');
-                    } else {
-                        selectedImages.add(url);
-                        this.classList.add('selected');
-                    }
-                    
-                    updateCounter();
-                });
-                
-                return card;
-            }
-            
-            // Initialize performance tracking
-            performanceStats.startTime = Date.now();
         });
+    }
+    
+    // Validate CSV data
+    function validateData(data) {
+        if (!data || data.length === 0) return false;
+        
+        const firstRow = data[0];
+        if (!firstRow) return false;
+        
+        const keys = Object.keys(firstRow);
+        let hasProductName = false;
+        let hasImageUrl = false;
+        
+        for (let key of keys) {
+            const lowerKey = key.toLowerCase();
+            if (lowerKey.includes('product') || lowerKey.includes('name')) {
+                hasProductName = true;
+            }
+            if (lowerKey.includes('image') || lowerKey.includes('url')) {
+                hasImageUrl = true;
+            }
+        }
+        
+        return hasProductName && hasImageUrl;
+    }
+    
+    // Process file manually
+    function processFileManually(content) {
+        debugInfoElement.style.display = 'block';
+        debugInfoElement.textContent = "Processing manually...";
+        
+        try {
+            const lines = content.split(/\r?\n/).filter(line => line.trim());
+            if (lines.length < 2) {
+                showError("Not enough data in the file.");
+                return;
+            }
+            
+            const firstLine = lines[0];
+            const delimiter = firstLine.includes('\t') ? '\t' : ',';
+            
+            const headers = firstLine.split(delimiter).map(h => h.trim().replace(/^"|"$/g, ''));
+            debugInfoElement.textContent += `\nHeaders: ${headers.join(', ')}`;
+            
+            const data = [];
+            for (let i = 1; i < lines.length; i++) {
+                const line = lines[i].trim();
+                if (!line) continue;
+                
+                const fields = line.split(delimiter).map(f => f.trim().replace(/^"|"$/g, ''));
+                if (fields.length < headers.length) continue;
+                
+                const row = {};
+                headers.forEach((header, index) => {
+                    row[header] = fields[index] || '';
+                });
+                data.push(row);
+            }
+            
+            debugInfoElement.textContent += `\nExtracted ${data.length} rows`;
+            
+            if (data.length === 0) {
+                showError("No valid data found in the file.");
+                return;
+            }
+            
+            processCSVData(data);
+        } catch (error) {
+            showError("Error processing file manually: " + error.message);
+        }
+    }
+    
+    // Process CSV data
+    function processCSVData(data) {
+        if (!data || data.length === 0) {
+            showError("No data found in the file.");
+            return;
+        }
+        
+        performanceStats.startTime = Date.now();
+        allProductData = data;
+        
+        const firstRow = data[0];
+        const keys = Object.keys(firstRow);
+        
+        // Find product name column
+        let productNameKey = keys[0]; // Default to first column
+        for (let key of keys) {
+            const lowerKey = key.toLowerCase();
+            if (lowerKey.includes('product') && lowerKey.includes('name')) {
+                productNameKey = key;
+                break;
+            }
+        }
+        
+        // Find image URL columns
+        const imageUrlKeys = [];
+        for (let key of keys) {
+            const lowerKey = key.toLowerCase();
+            if (lowerKey.includes('image') && lowerKey.includes('url')) {
+                imageUrlKeys.push(key);
+            }
+        }
+        
+        debugInfoElement.textContent = `Product column: ${productNameKey}\nImage columns: ${imageUrlKeys.join(', ')}`;
+        debugInfoElement.style.display = 'block';
+        
+        if (!productNameKey || imageUrlKeys.length === 0) {
+            showError("Could not identify product name or image URL columns.");
+            return;
+        }
+        
+        // Group products and collect unique images
+        const productGroups = new Map();
+        let totalImages = 0;
+        let duplicateImages = 0;
+        
+        data.forEach(row => {
+            const productName = row[productNameKey];
+            if (!productName || !productName.trim()) return;
+            
+            const cleanProductName = productName.trim();
+            
+            if (!productGroups.has(cleanProductName)) {
+                productGroups.set(cleanProductName, {
+                    name: cleanProductName,
+                    images: []
+                });
+            }
+            
+            imageUrlKeys.forEach(key => {
+                const url = row[key];
+                if (url && url.trim() && isValidImageUrl(url.trim())) {
+                    totalImages++;
+                    const cleanUrl = url.trim();
+                    
+                    if (!globalSeenImages.has(cleanUrl)) {
+                        globalSeenImages.add(cleanUrl);
+                        productGroups.get(cleanProductName).images.push({
+                            url: cleanUrl,
+                            column: key
+                        });
+                    } else {
+                        duplicateImages++;
+                    }
+                }
+            });
+        });
+        
+        uniqueProducts = Array.from(productGroups.values()).filter(product => product.images.length > 0);
+        performanceStats.totalImages = totalImages - duplicateImages;
+        
+        // Show filtering info
+        filteringInfo.innerHTML = `
+            <strong>Processing Summary:</strong><br>
+            • Total images found: ${totalImages}<br>
+            • Duplicate images removed: ${duplicateImages}<br>
+            • Unique images: ${totalImages - duplicateImages}<br>
+            • Products with images: ${uniqueProducts.length}
+        `;
+        filteringInfo.style.display = 'block';
+        
+        if (uniqueProducts.length === 0) {
+            showError("No valid products with images found.");
+            return;
+        }
+        
+        currentProductIndex = 0;
+        displayCurrentProduct();
+        updateProgressText();
+    }
+    
+    // Check if URL is valid image URL
+    function isValidImageUrl(url) {
+        return typeof url === 'string' && 
+               (url.startsWith('http://') || url.startsWith('https://'));
+    }
+    
+    // Display current product
+    function displayCurrentProduct() {
+        selectedImages.clear();
+        updateCounter();
+        galleryContainer.innerHTML = '';
+        
+        if (currentProductIndex < 0 || currentProductIndex >= uniqueProducts.length) {
+            showError("No more products to process.");
+            return;
+        }
+        
+        const currentProduct = uniqueProducts[currentProductIndex];
+        
+        productTitleElement.textContent = `Product: ${currentProduct.name}`;
+        productTitleElement.style.display = 'block';
+        
+        updatePerformanceInfo();
+        createProductCards(currentProduct);
+    }
+    
+    // Create product cards
+    function createProductCards(product) {
+        const fragment = document.createDocumentFragment();
+        
+        product.images.forEach((image, index) => {
+            const card = createProductCard(product.name, image.url, image.column, index + 1);
+            fragment.appendChild(card);
+        });
+        
+        galleryContainer.appendChild(fragment);
+        
+        // Setup lazy loading for all images
+        const lazyImages = galleryContainer.querySelectorAll('.product-image[data-src]');
+        lazyImages.forEach(img => {
+            lazyImageObserver.observe(img);
+        });
+    }
+    
+    // Create single product card
+    function createProductCard(productName, imageUrl, columnId, imageIndex) {
+        const card = document.createElement('div');
+        card.className = 'product-card';
+        card.dataset.url = imageUrl;
+        card.dataset.column = columnId;
+        
+        const skeleton = document.createElement('div');
+        skeleton.className = 'skeleton-loader';
+        
+        const img = document.createElement('img');
+        img.className = 'product-image';
+        img.alt = productName;
+        img.dataset.src = imageUrl;
+        img.style.display = 'none';
+        
+        const infoDiv = document.createElement('div');
+        infoDiv.className = 'product-info';
+        infoDiv.innerHTML = `
+            <h3 class="product-name">Image ${imageIndex}</h3>
+            <div class="image-status" style="font-size: 12px; color: #666;">Loading...</div>
+        `;
+        
+        card.appendChild(skeleton);
+        card.appendChild(img);
+        card.appendChild(infoDiv);
+        
+        // Click handler for selection
+        card.addEventListener('click', function() {
+            const url = this.dataset.url;
+            
+            if (selectedImages.has(url)) {
+                selectedImages.delete(url);
+                this.classList.remove('selected');
+            } else {
+                selectedImages.add(url);
+                this.classList.add('selected');
+            }
+            
+            updateCounter();
+        });
+        
+        return card;
+    }
+    
+    // Load image with caching
+    function loadImage(img) {
+        const imageUrl = img.dataset.src;
+        const card = img.closest('.product-card');
+        const skeleton = card.querySelector('.skeleton-loader');
+        const statusDiv = card.querySelector('.image-status');
+        
+        // Check cache first
+        if (imageCache.has(imageUrl)) {
+            const cachedData = imageCache.get(imageUrl);
+            applyImageResult(img, card, skeleton, statusDiv, cachedData);
+            return;
+        }
+        
+        // Create new image for loading
+        const newImg = new Image();
+        newImg.crossOrigin = 'anonymous';
+        
+        // Set timeout for loading
+        const timeout = setTimeout(() => {
+            performanceStats.imagesFailed++;
+            const result = {
+                success: false,
+                error: 'Timeout',
+                dimensions: 'Loading timeout'
+            };
+            imageCache.set(imageUrl, result);
+            applyImageResult(img, card, skeleton, statusDiv, result);
+            updatePerformanceInfo();
+        }, 8000);
+        
+        newImg.onload = function() {
+            clearTimeout(timeout);
+            performanceStats.imagesLoaded++;
+            
+            const result = {
+                success: true,
+                width: this.naturalWidth,
+                height: this.naturalHeight,
+                dimensions: `${this.naturalWidth}x${this.naturalHeight}`
+            };
+            
+            imageCache.set(imageUrl, result);
+            applyImageResult(img, card, skeleton, statusDiv, result);
+            updatePerformanceInfo();
+        };
+        
+        newImg.onerror = function() {
+            clearTimeout(timeout);
+            performanceStats.imagesFailed++;
+            
+            const result = {
+                success: false,
+                error: 'Failed to load',
+                dimensions: 'Load error'
+            };
+            
+            imageCache.set(imageUrl, result);
+            applyImageResult(img, card, skeleton, statusDiv, result);
+            updatePerformanceInfo();
+        };
+        
+        newImg.src = imageUrl;
+    }
+    
+    // Apply image loading result
+    function applyImageResult(img, card, skeleton, statusDiv, result) {
+        card.classList.remove('loading');
+        
+        if (result.success) {
+            img.src = img.dataset.src;
+            img.style.display = 'block';
+            skeleton.style.display = 'none';
+            statusDiv.textContent = `Size: ${result.dimensions}`;
+            statusDiv.style.color = '#4CAF50';
+        } else {
+            skeleton.innerHTML = `
+                <div style="text-align: center; color: #999; padding: 20px;">
+                    <div style="font-size: 24px;">❌</div>
+                    <div style="font-size: 12px; margin-top: 5px;">${result.error}</div>
+                </div>
+            `;
+            statusDiv.textContent = `Error: ${result.dimensions}`;
+            statusDiv.style.color = '#f44336';
+        }
+    }
+    
+    // Update counter displays
+    function updateCounter() {
+        const count = selectedImages.size;
+        const text = `${count} selected`;
+        headerCounter.textContent = text;
+        stickyCounter.textContent = text;
+        
+        // Add pulse animation
+        stickyCounter.classList.add('pulse');
+        setTimeout(() => stickyCounter.classList.remove('pulse'), 300);
+    }
+    
+    // Update progress text
+    function updateProgressText() {
+        const total = uniqueProducts.length;
+        const current = currentProductIndex + 1;
+        progressText.textContent = `Product ${current} of ${total}`;
+    }
+    
+    // Update performance info
+    function updatePerformanceInfo() {
+        const elapsed = Date.now() - performanceStats.startTime;
+        const loadedPercent = performanceStats.totalImages > 0 ? 
+            Math.round((performanceStats.imagesLoaded / performanceStats.totalImages) * 100) : 0;
+        
+        performanceInfo.innerHTML = `
+            <strong>Performance:</strong><br>
+            • Images loaded: ${performanceStats.imagesLoaded}/${performanceStats.totalImages} (${loadedPercent}%)<br>
+            • Failed: ${performanceStats.imagesFailed}<br>
+            • Time: ${Math.round(elapsed / 1000)}s<br>
+            • Speed: ${elapsed > 0 ? Math.round(performanceStats.imagesLoaded / (elapsed / 1000)) : 0} images/sec
+        `;
+        performanceInfo.style.display = 'block';
+    }
+    
+    // Show error message
+    function showError(message) {
+        errorContainer.innerHTML = `<div class="error">${message}</div>`;
+    }
+});
     </script>
 </body>
 </html>
